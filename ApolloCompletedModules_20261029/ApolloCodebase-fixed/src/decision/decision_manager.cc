@@ -13,15 +13,23 @@
 
 namespace decision {
 
-DecisionManager::DecisionManager(std::string mode) : mode_(std::move(mode)) {
+DecisionManager::DecisionManager(std::string mode) : mode_(std::move(mode)),
+    match_shooting_enabled_(!(std::getenv("APOLLO_MATCH_SHOOTING") &&
+        std::string(std::getenv("APOLLO_MATCH_SHOOTING")) == "0")) {
     if (mode_ != "match" && mode_ != "penalty-kicker" && mode_ != "penalty-goalie")
         throw std::invalid_argument("Invalid decision mode");
 }
 
 HighLevelCommand DecisionManager::decide(const world::WorldSnapshot& snapshot) {
-    if (mode_ == "match")
-        return guard_own_goal_area(snapshot,
-            behavior_tree_.evaluate(snapshot, blackboard_, role_manager_));
+    if (mode_ == "match") {
+        auto command = behavior_tree_.evaluate(snapshot, blackboard_, role_manager_);
+        if (match_shooting_enabled_) {
+            const int role = current_role_from_blackboard(blackboard_);
+            if (auto shot = match_shot_controller_.step(snapshot, role, command))
+                command = *shot;
+        }
+        return guard_own_goal_area(snapshot, command);
+    }
 
     // Explicit single-agent roles: never infer a seven-player formation here.
     const bool kicker = mode_ == "penalty-kicker";
@@ -37,6 +45,7 @@ HighLevelCommand DecisionManager::decide(const world::WorldSnapshot& snapshot) {
         (!kicker && (snapshot.play_mode == world::PlayMode::TheirPenaltyKick ||
                      snapshot.play_mode == world::PlayMode::TheirPenaltyShoot));
     if (!active) {
+        penalty_kick_controller_.reset();
         penalty_state_ = {};
         penalty_ball_seen_time_.reset();
         penalty_goalie_update_time_.reset();
@@ -46,6 +55,7 @@ HighLevelCommand DecisionManager::decide(const world::WorldSnapshot& snapshot) {
         penalty_goalie_target_y_ = 0.0;
         return NeutralCommand{}; // Referee/server placement; no guessed penalty beam.
     }
+    if (kicker) return penalty_kick_controller_.step(snapshot);
     if (snapshot.self.position_m[2] < world::kFallenHeightThresholdM) {
         penalty_state_ = {};
         penalty_ball_seen_time_.reset();
@@ -56,40 +66,13 @@ HighLevelCommand DecisionManager::decide(const world::WorldSnapshot& snapshot) {
         penalty_goalie_target_y_ = 0.0;
         return GetUpCommand{};
     }
-    if (kicker) {
-        // Vision is not delivered every control cycle. Keep a short-lived
-        // world-frame ball estimate rather than switching Walk/Neutral on each
-        // absent vision frame (which also resets the gait history every time).
-        constexpr double kBallHoldSeconds = 0.25;
-        if (penalty_ball_seen_time_ && snapshot.server_time < *penalty_ball_seen_time_) {
-            penalty_ball_seen_time_.reset();
-            penalty_state_ = {};
-        }
-        if (snapshot.ball.visible) {
-            penalty_last_ball_ = snapshot.ball;
-            penalty_ball_seen_time_ = snapshot.server_time;
-        }
-        if (!penalty_ball_seen_time_)
-            return NeutralCommand{}; // Still waiting for the first ball observation.
-        if (snapshot.server_time - *penalty_ball_seen_time_ > kBallHoldSeconds) {
-            penalty_state_ = {};
-            WalkCommand stop;
-            stop.target_absolute = false;
-            stop.target_2d_m = {0.0, 0.0};
-            stop.role_id = RoleManager::ROLE_AP;
-            return stop; // Stop translation without a gait-to-straight-leg jump.
-        }
-        auto tracked = snapshot;
-        if (!snapshot.ball.visible) {
-            tracked.ball = penalty_last_ball_;
-            tracked.ball.visible = false;
-            tracked.ball.velocity_valid = false;
-        }
-        return make_penalty_dribble_command(tracked, penalty_state_);
-    }
     // Penalty-only standing interception, in the canonical own-goal-at-minus-x frame.
     // Normal match goalkeeper behavior remains unchanged.
-    const double keeper_x = hold[0];
+    const bool formal_penalty = snapshot.play_mode == world::PlayMode::TheirPenaltyKick
+        || snapshot.play_mode == world::PlayMode::TheirPenaltyShoot;
+    // Body-reference target only; actual foot compliance still needs simulator validation.
+    const double keeper_x = formal_penalty
+        ? -field_geometry::kActualHalfLengthM : hold[0];
     const double limit_y = std::max(0.0, field_geometry::kGoalHalfWidthM - 0.25);
     const std::array<double, 2> self_xy{snapshot.self.position_m[0], snapshot.self.position_m[1]};
     bool relocated = false;
@@ -161,12 +144,13 @@ HighLevelCommand DecisionManager::decide(const world::WorldSnapshot& snapshot) {
         && std::isfinite(clear_ball.velocity_mps[1])
         && std::hypot(clear_ball.velocity_mps[0],
                       clear_ball.velocity_mps[1]) < 0.15;
-    const bool close_front = fresh_ball
+    const bool close_front = !formal_penalty && fresh_ball
         && dx > 0.05 && dx < 0.75 && std::abs(dy) < 0.45
         && self_xy[0] >= keeper_x - 0.2
         && self_xy[0] < keeper_x + 0.8
         && std::abs(self_xy[1]) <= limit_y;
 
+    if (formal_penalty) { goalie_clear_until_.reset(); goalie_clear_since_.reset(); }
     if (goalie_clear_until_ &&
         (now >= *goalie_clear_until_
          || *goalie_clear_until_ - now > 3.1

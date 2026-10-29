@@ -24,14 +24,17 @@ struct WalkCommand {
     std::optional<double> orientation_deg;
     bool orientation_absolute{true};
     std::optional<int> role_id;
+    std::optional<double> head_search_pitch_deg;
 };
 
 /// Requests execution of the learned get-up policy.
 struct GetUpCommand {};
+/// One latched attempt; execution requires an explicitly enabled experimental motion.
+struct KickCommand { unsigned long attempt_id{1}; };
 /// Requests the neutral standing keyframe.
 struct NeutralCommand {};
 
 /// Command variants emitted by the decision layer and consumed by motion control.
-using HighLevelCommand = std::variant<BeamCommand, WalkCommand, GetUpCommand, NeutralCommand>;
+using HighLevelCommand = std::variant<BeamCommand, WalkCommand, GetUpCommand, NeutralCommand, KickCommand>;
 
 }  // namespace decision

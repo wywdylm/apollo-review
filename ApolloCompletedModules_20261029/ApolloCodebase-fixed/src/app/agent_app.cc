@@ -1,3 +1,4 @@
+#include <cstdlib>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 The Hong Kong University of Science and Technology (Guangzhou), Humanoid Computing & Learning Lab.
 
@@ -132,7 +133,15 @@ std::string AgentApp::process_perception_message(const std::string& message) {
     } else {
         const auto motion_result = motion_manager_.step(snapshot, command, reset);
         last_active_motion_ = motion_result.active_motion;
-        if (config_.log_level == "debug" && (reset || frame.server_cycle % 25 == 0)) {
+        if (motion_result.kick_finished) decision_manager_.notify_kick_finished();
+        // Decimation is configurable so offline analysis can get per-cycle samples:
+        // APOLLO_MOTION_LOG_EVERY=1 logs every simulation cycle.
+        static const int motion_log_every = [] {
+            const char* raw = std::getenv("APOLLO_MOTION_LOG_EVERY");
+            const int parsed = raw ? std::atoi(raw) : 25;
+            return parsed > 0 ? parsed : 25;
+        }();
+        if (config_.log_level == "debug" && (reset || frame.server_cycle % motion_log_every == 0)) {
             write_motion_diagnostics(std::cerr, snapshot, command,
                 motion_result.active_motion, reset, motion_result.joint_targets);
         }

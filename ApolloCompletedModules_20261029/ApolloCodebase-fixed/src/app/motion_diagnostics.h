@@ -22,7 +22,7 @@ inline void write_motion_diagnostics(std::ostream& out,
         if (std::isfinite(j.q_deg)) max_q = std::max(max_q, std::abs(j.q_deg));
     }
     out << "[motion] t=" << s.server_time << " player=" << s.player_number
-        << " motion=" << motion << " reset=" << reset
+        << " pm=" << static_cast<int>(s.play_mode) << " motion=" << motion << " reset=" << reset
         << " xyz=" << s.self.position_m[0] << ',' << s.self.position_m[1] << ',' << s.self.position_m[2]
         << " quat_wxyz=" << s.self.orientation_wxyz[0] << ',' << s.self.orientation_wxyz[1]
         << ',' << s.self.orientation_wxyz[2] << ',' << s.self.orientation_wxyz[3]

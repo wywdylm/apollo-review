@@ -62,7 +62,8 @@ private:
     robot::JointTargets decode_action(
         const world::WorldSnapshot& snapshot,
         const std::vector<float>& action,
-        std::optional<int> role_id);
+        std::optional<int> role_id,
+        std::optional<double> search_pitch);
 };
 
 }  // namespace behavior

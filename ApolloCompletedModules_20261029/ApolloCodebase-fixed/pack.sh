@@ -98,7 +98,7 @@ if [[ -n "$missing" ]]; then
 fi
 
 # These scripts detect the packaged executable and use absolute asset paths.
-for script in start.sh start_opponent.sh start_penalty_kicker.sh start_penalty_goalie.sh kill.sh kill_opponent.sh team_processes.sh; do
+for script in start.sh start_opponent.sh start_penalty.sh start_penalty_kicker.sh start_penalty_goalie.sh kill.sh kill_opponent.sh team_processes.sh; do
   cp "$repo_root/$script" "$pkg/$script"
   chmod +x "$pkg/$script"
 done

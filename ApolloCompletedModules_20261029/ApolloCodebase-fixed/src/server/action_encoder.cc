@@ -9,7 +9,10 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
+#include <cstdio>
 #include <optional>
+#include <string>
 #include <stdexcept>
 #include <string_view>
 
@@ -21,6 +24,19 @@ constexpr char kBase64Alphabet[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789+/";
+
+// Safety envelope for joint commands. One non-finite/huge target destabilises the
+// whole MuJoCo world ("Nan, Inf or huge value in CTRL") and knocks over every robot.
+constexpr double kMaxAbsQDeg = 200.0;
+constexpr double kMaxAbsDqDeg = 3000.0;
+constexpr double kMaxKp = 200.0;
+constexpr double kMaxKd = 20.0;
+constexpr double kMaxAbsTauNm = 60.0;
+
+double sanitize(double value, double limit, double fallback) {
+    const double finite_value = std::isfinite(value) ? value : fallback;
+    return std::clamp(finite_value, -limit, limit);
+}
 
 // std::to_chars in shortest-roundtrip mode emits the canonical short form
 // (e.g. "1" for 1.0, "0.1" exact). No locale, no allocation.
@@ -134,8 +150,24 @@ std::string ActionEncoder::encode_motor_node(
         throw std::invalid_argument("motor name must not be empty");
     }
 
-    return "(" + name + " " + format_number(q_deg) + " " + format_number(dq_deg) + " " +
-           format_number(kp) + " " + format_number(kd) + " " + format_number(tau) + ")";
+    const double q = sanitize(q_deg, kMaxAbsQDeg, 0.0);
+    const double dq = sanitize(dq_deg, kMaxAbsDqDeg, 0.0);
+    const double kp_safe = sanitize(kp, kMaxKp, 0.0);
+    const double kd_safe = sanitize(kd, kMaxKd, 0.0);
+    const double tau_safe = sanitize(tau, kMaxAbsTauNm, 0.0);
+
+    if (!std::isfinite(q_deg) || !std::isfinite(dq_deg) || !std::isfinite(kp) ||
+        !std::isfinite(kd) || !std::isfinite(tau)) {
+        static unsigned long long sanitized_count = 0;
+        if (sanitized_count++ % 100ULL == 0ULL) {
+            std::fprintf(stderr, "[action_encoder] non-finite motor target sanitised (%s)\n",
+                         name.c_str());
+        }
+    }
+
+    return "(" + name + " " + format_number(q) + " " + format_number(dq) + " " +
+           format_number(kp_safe) + " " + format_number(kd_safe) + " " +
+           format_number(tau_safe) + ")";
 }
 
 std::vector<std::string> ActionEncoder::encode_motor_actions(

@@ -35,7 +35,7 @@ inline HighLevelCommand guard_own_goal_area(
     if (x < boundary) {
         WalkCommand exit;
         exit.target_absolute = true;
-        exit.target_2d_m = {boundary + 0.2, y};
+        exit.target_2d_m = {boundary + 0.8, y};
         exit.orientation_deg = 0.0;
         exit.orientation_absolute = true;
         if (const auto* walk = std::get_if<WalkCommand>(&command))

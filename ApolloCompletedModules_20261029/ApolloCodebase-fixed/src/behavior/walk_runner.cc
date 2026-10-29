@@ -28,7 +28,7 @@ std::optional<robot::T1RobotModel::HeadTargets> update_head_tracker(
     behavior::WalkRunner::HeadTrackerState& state,
     const world::WorldSnapshot& snapshot,
     const robot::T1RobotModel& robot_model,
-    std::optional<int> role_id) {
+    std::optional<int> role_id, std::optional<double> search_pitch) {
     constexpr double lock_hold_time = 0.6;
     constexpr double search_sweep_deg = 70.0;
     constexpr double search_period = 3.0;
@@ -74,6 +74,7 @@ std::optional<robot::T1RobotModel::HeadTargets> update_head_tracker(
     }
 
     if (!state.last_head_target_deg.has_value() || !state.last_ball_seen_time.has_value()) {
+        if (search_pitch) return robot_model.clamp_head_targets(0.0, *search_pitch);
         return std::nullopt;
     }
 
@@ -86,7 +87,7 @@ std::optional<robot::T1RobotModel::HeadTargets> update_head_tracker(
     const double phase =
         2.0 * kPi * std::fmod(snapshot.server_time, search_period) / search_period;
     const double yaw = search_sweep_deg * std::sin(phase);
-    return robot_model.clamp_head_targets(yaw, sweep_pitch_deg);
+    return robot_model.clamp_head_targets(yaw, search_pitch.value_or(sweep_pitch_deg));
 }
 
 }  // namespace
@@ -173,10 +174,10 @@ void WalkRunner::build_observation(
 robot::JointTargets WalkRunner::decode_action(
     const world::WorldSnapshot& snapshot,
     const std::vector<float>& action,
-    std::optional<int> role_id) {
+    std::optional<int> role_id, std::optional<double> search_pitch) {
     robot::JointTargets joint_targets = decode_action_base(action, robot_model_, kActionScale);
 
-    const auto head_target = update_head_tracker(head_tracker_state_, snapshot, robot_model_, role_id);
+    const auto head_target = update_head_tracker(head_tracker_state_, snapshot, robot_model_, role_id, search_pitch);
     if (head_target.has_value()) {
         joint_targets[0].q_deg = head_target->yaw_deg;
         joint_targets[1].q_deg = head_target->pitch_deg;
@@ -191,6 +192,7 @@ WalkStepResult WalkRunner::step(
     bool reset,
     std::optional<int> role_id) {
     if (reset) {
+        head_tracker_state_ = {};
         std::fill(previous_action_.begin(), previous_action_.end(), 0.0F);
     }
 
@@ -207,7 +209,7 @@ WalkStepResult WalkRunner::step(
     return {
         observation_,
         action,
-        decode_action(snapshot, action, role_id),
+        decode_action(snapshot, action, role_id, command.head_search_pitch_deg),
     };
 }
 

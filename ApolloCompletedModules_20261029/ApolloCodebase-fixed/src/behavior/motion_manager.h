@@ -11,6 +11,7 @@
 #include "src/robot/joint_targets.h"
 #include "src/world/world_snapshot.h"
 
+#include "src/behavior/experimental_kick_runner.h"
 #include <cstdint>
 #include <string>
 
@@ -21,6 +22,7 @@ struct MotionStepResult {
     bool handled{false};
     std::string active_motion;
     robot::JointTargets joint_targets;
+    bool kick_finished{false};
 };
 
 /// Selects and coordinates walk, neutral, and get-up motion runners.
@@ -43,6 +45,13 @@ private:
     // Maximum getup duration (seconds) before forcing recovery.
     static constexpr double kGetUpTimeoutS = 6.0;
 
+    bool experimental_kick_enabled_{false};
+    bool kick_active_{false};
+    bool kick_done_{false};
+    bool reset_walk_after_kick_{false};
+    bool walk_ready_{false};
+    bool preserve_walk_transition_{false};
+    ExperimentalKickRunner kick_runner_;
     WalkRunner walk_runner_;
     KeyframeRunner neutral_runner_;
     GetupRunner getup_runner_;
