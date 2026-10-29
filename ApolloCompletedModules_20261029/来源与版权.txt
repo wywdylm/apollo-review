@@ -1,0 +1,4 @@
+基础项目：https://github.com/XiangruiJiang/ApolloCodebase
+源码版权标记保留在各文件，使用GPL-3.0-or-later标记。
+行走和起身模型来自用户提供的Apollo项目安装文件，非本次新训练的射门模型。
+本次整理仅汇总现有源码、模型及验证状态，不声称拥有原项目版权或已通过正式比赛验收。
